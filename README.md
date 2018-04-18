@@ -1,10 +1,9 @@
 # Keras - Chrono LSTM and Just Another Recurrent Neural Network
+Keras implementation of the paper [The unreasonable effectiveness of the forget gate](https://arxiv.org/abs/1804.04849) and the Chrono initializer and Chrono LSTM from the paper [Can Recurrent Neural Networks Warp Time?](https://openreview.net/pdf?id=SJcKhk-Ab). 
 
-Keras implementation of the paper [The unreasonable effectiveness of the forget gate](https://arxiv.org/abs/1804.04849).
+This model utilizes just 2 gates - forget (f) and context (c) gates out of the 4 gates in a regular LSTM RNN, and uses `Chrono Initialization` to acheive better performance than regular LSTMs while using fewer parameters and less complicated gating structure.
 
-This model utilizes just 2 gates - forget (f) and context (c) gates out of the 4 gates in a regular LSTM RNN, and uses `Chrono Initialization` from the paper [Can Recurrent Neural Networks Warp Time?](https://openreview.net/pdf?id=SJcKhk-Ab) to acheive better performance than regular LSTMs while using fewer parameters and less complicated gating structure.
-
-# Usage
+## Usage
 Simply import the `janet.py` file into your repo and use the `JANET` layer. 
 
 It is **not** adviseable to use the `JANETCell` directly wrapped around a `RNN` layer, as this will not allow the `max timesteps` calculation that is needed for proper training using the `Chrono Initializer` for the forget gate.
@@ -13,12 +12,15 @@ The `chrono_lstm.py` script contains the `ChronoLSTM` model, as it requires mini
 
 Same restrictions to usage as the `JANET` layer, use the `ChronoLSTM` layer directly instead of the `ChronoLSTMCell` wrapped around a `RNN` layer.
 
+To use just the `ChronoInitializer`, import the `chrono_initializer.py` script.
+
 ```python
 from janet import JANET
 from chrono_lstm import ChronoLSTM
 
 ...
 ```
+
 
 # Experiments
 ## Addition Task
