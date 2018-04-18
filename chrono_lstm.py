@@ -21,12 +21,12 @@ from keras.utils.generic_utils import get_custom_objects
 from chrono_initializer import ChronoInitializer
 
 
-class JANETCell(Layer):
-    """Cell class for the paper ["The unreasonable effectiveness of the forget gate"]
-       (https://arxiv.org/abs/1804.04849)
+class ChronoLSTMCell(Layer):
+    """Cell class for the LSTM layer with Chrono Initialization
 
     # Arguments
         units: Positive integer, dimensionality of the output space.
+        max_timesteps: Positive integer, maximum number of timesteps possible.
         activation: Activation function to use
             (see [activations](../activations.md)).
             Default: hyperbolic tangent (`tanh`).
@@ -49,10 +49,8 @@ class JANETCell(Layer):
         bias_initializer: Initializer for the bias vector
             (see [initializers](../initializers.md)).
         use_chrono_initialization: Boolean.
-            If True, overrides the provided kernel initializer, recurrent
-            initializer and forget gate initializer of the model to use
-            'ChronoInitializer' scheme.
-            Ref: [The unreasonable effectiveness of the forget gate](https://arxiv.org/abs/1804.04849)
+            If True, uses Chrono Initialization from the paper
+            [Can recurrent neural networks warp time?](https://openreview.net/pdf?id=SJcKhk-Ab)
         kernel_regularizer: Regularizer function applied to
             the `kernel` weights matrix
             (see [regularizer](../regularizers.md)).
@@ -83,12 +81,12 @@ class JANETCell(Layer):
             for different applications.
     """
 
-    def __init__(self, units,
+    def __init__(self, units, max_timesteps,
                  activation='tanh',
-                 recurrent_activation='sigmoid',
+                 recurrent_activation='hard_sigmoid',
                  use_bias=True,
                  kernel_initializer='glorot_uniform',
-                 recurrent_initializer='glorot_uniform',
+                 recurrent_initializer='orthogonal',
                  bias_initializer='zeros',
                  use_chrono_initialization=True,
                  kernel_regularizer=None,
@@ -101,8 +99,9 @@ class JANETCell(Layer):
                  recurrent_dropout=0.,
                  implementation=1,
                  **kwargs):
-        super(JANETCell, self).__init__(**kwargs)
+        super(ChronoLSTMCell, self).__init__(**kwargs)
         self.units = units
+        self.max_timestep = max_timesteps if max_timesteps is not None else int(10000)
         self.activation = activations.get(activation)
         self.recurrent_activation = activations.get(recurrent_activation)
         self.use_bias = use_bias
@@ -129,22 +128,13 @@ class JANETCell(Layer):
 
     def build(self, input_shape):
         input_dim = input_shape[-1]
-
-        if hasattr(self, 'timesteps') and self.timesteps is not None:
-            self.max_timesteps = self.timesteps
-        else:
-            warnings.warn('Maximum number of timesteps must be defined for this model for proper initialization.\n'
-                          'Since the maximum timesteps was not defined, defaulting to a very large number of timesteps '
-                          '(1000). Note : This may cause irregular training behaviour.')
-            self.max_timesteps = 1000
-
-        self.kernel = self.add_weight(shape=(input_dim, self.units * 2),
+        self.kernel = self.add_weight(shape=(input_dim, self.units * 4),
                                       name='kernel',
                                       initializer=self.kernel_initializer,
                                       regularizer=self.kernel_regularizer,
                                       constraint=self.kernel_constraint)
         self.recurrent_kernel = self.add_weight(
-            shape=(self.units, self.units * 2),
+            shape=(self.units, self.units * 4),
             name='recurrent_kernel',
             initializer=self.recurrent_initializer,
             regularizer=self.recurrent_regularizer,
@@ -153,14 +143,17 @@ class JANETCell(Layer):
         if self.use_bias:
             if self.use_chrono_initialization:
                 def bias_initializer(_, *args, **kwargs):
+                    f_init = ChronoInitializer(self.max_timestep)((self.units,), *args, **kwargs)
+                    i_init = -f_init
+
                     return K.concatenate([
-                        ChronoInitializer(self.max_timesteps)((self.units,), *args, **kwargs),
-                        self.bias_initializer((self.units,), *args, **kwargs),
+                        i_init,
+                        f_init,
+                        self.bias_initializer((self.units * 2,), *args, **kwargs),
                     ])
             else:
                 bias_initializer = self.bias_initializer
-
-            self.bias = self.add_weight(shape=(self.units * 2,),
+            self.bias = self.add_weight(shape=(self.units * 4,),
                                         name='bias',
                                         initializer=bias_initializer,
                                         regularizer=self.bias_regularizer,
@@ -168,18 +161,26 @@ class JANETCell(Layer):
         else:
             self.bias = None
 
-        self.kernel_f = self.kernel[:, :self.units]
-        self.kernel_c = self.kernel[:, self.units: self.units * 2]
+        self.kernel_i = self.kernel[:, :self.units]
+        self.kernel_f = self.kernel[:, self.units: self.units * 2]
+        self.kernel_c = self.kernel[:, self.units * 2: self.units * 3]
+        self.kernel_o = self.kernel[:, self.units * 3:]
 
-        self.recurrent_kernel_f = self.recurrent_kernel[:, :self.units]
-        self.recurrent_kernel_c = self.recurrent_kernel[:, self.units: self.units * 2]
+        self.recurrent_kernel_i = self.recurrent_kernel[:, :self.units]
+        self.recurrent_kernel_f = self.recurrent_kernel[:, self.units: self.units * 2]
+        self.recurrent_kernel_c = self.recurrent_kernel[:, self.units * 2: self.units * 3]
+        self.recurrent_kernel_o = self.recurrent_kernel[:, self.units * 3:]
 
         if self.use_bias:
-            self.bias_f = self.bias[:self.units]
-            self.bias_c = self.bias[self.units: self.units * 2]
+            self.bias_i = self.bias[:self.units]
+            self.bias_f = self.bias[self.units: self.units * 2]
+            self.bias_c = self.bias[self.units * 2: self.units * 3]
+            self.bias_o = self.bias[self.units * 3:]
         else:
+            self.bias_i = None
             self.bias_f = None
             self.bias_c = None
+            self.bias_o = None
         self.built = True
 
     def call(self, inputs, states, training=None):
@@ -188,14 +189,14 @@ class JANETCell(Layer):
                 _generate_dropout_ones(inputs, K.shape(inputs)[-1]),
                 self.dropout,
                 training=training,
-                count=2)
+                count=4)
         if (0 < self.recurrent_dropout < 1 and
                 self._recurrent_dropout_mask is None):
             self._recurrent_dropout_mask = _generate_dropout_mask(
                 _generate_dropout_ones(inputs, self.units),
                 self.recurrent_dropout,
                 training=training,
-                count=2)
+                count=4)
 
         # dropout matrices for input units
         dp_mask = self._dropout_mask
@@ -207,49 +208,64 @@ class JANETCell(Layer):
 
         if self.implementation == 1:
             if 0 < self.dropout < 1.:
-                inputs_f = inputs * dp_mask[0]
-                inputs_c = inputs * dp_mask[1]
+                inputs_i = inputs * dp_mask[0]
+                inputs_f = inputs * dp_mask[1]
+                inputs_c = inputs * dp_mask[2]
+                inputs_o = inputs * dp_mask[3]
             else:
+                inputs_i = inputs
                 inputs_f = inputs
                 inputs_c = inputs
-
+                inputs_o = inputs
+            x_i = K.dot(inputs_i, self.kernel_i)
             x_f = K.dot(inputs_f, self.kernel_f)
             x_c = K.dot(inputs_c, self.kernel_c)
-
+            x_o = K.dot(inputs_o, self.kernel_o)
             if self.use_bias:
+                x_i = K.bias_add(x_i, self.bias_i)
                 x_f = K.bias_add(x_f, self.bias_f)
                 x_c = K.bias_add(x_c, self.bias_c)
+                x_o = K.bias_add(x_o, self.bias_o)
 
             if 0 < self.recurrent_dropout < 1.:
-                h_tm1_f = h_tm1 * rec_dp_mask[0]
-                h_tm1_c = h_tm1 * rec_dp_mask[1]
+                h_tm1_i = h_tm1 * rec_dp_mask[0]
+                h_tm1_f = h_tm1 * rec_dp_mask[1]
+                h_tm1_c = h_tm1 * rec_dp_mask[2]
+                h_tm1_o = h_tm1 * rec_dp_mask[3]
             else:
+                h_tm1_i = h_tm1
                 h_tm1_f = h_tm1
                 h_tm1_c = h_tm1
-
-            f = self.recurrent_activation(x_f + K.dot(h_tm1_f, self.recurrent_kernel_f))
-            c = f * c_tm1 + (1. - f) * self.activation(x_c + K.dot(h_tm1_c, self.recurrent_kernel_c))
+                h_tm1_o = h_tm1
+            i = self.recurrent_activation(x_i + K.dot(h_tm1_i,
+                                                      self.recurrent_kernel_i))
+            f = self.recurrent_activation(x_f + K.dot(h_tm1_f,
+                                                      self.recurrent_kernel_f))
+            c = f * c_tm1 + i * self.activation(x_c + K.dot(h_tm1_c,
+                                                            self.recurrent_kernel_c))
+            o = self.recurrent_activation(x_o + K.dot(h_tm1_o,
+                                                      self.recurrent_kernel_o))
         else:
             if 0. < self.dropout < 1.:
                 inputs *= dp_mask[0]
-
             z = K.dot(inputs, self.kernel)
-
             if 0. < self.recurrent_dropout < 1.:
                 h_tm1 *= rec_dp_mask[0]
-
             z += K.dot(h_tm1, self.recurrent_kernel)
-
             if self.use_bias:
                 z = K.bias_add(z, self.bias)
 
             z0 = z[:, :self.units]
             z1 = z[:, self.units: 2 * self.units]
+            z2 = z[:, 2 * self.units: 3 * self.units]
+            z3 = z[:, 3 * self.units:]
 
-            f = self.recurrent_activation(z0)
-            c = f * c_tm1 + (1. - f) * self.activation(z1)
+            i = self.recurrent_activation(z0)
+            f = self.recurrent_activation(z1)
+            c = f * c_tm1 + i * self.activation(z2)
+            o = self.recurrent_activation(z3)
 
-        h = c
+        h = o * self.activation(c)
         if 0 < self.dropout + self.recurrent_dropout:
             if training is None:
                 h._uses_learning_phase = True
@@ -257,13 +273,14 @@ class JANETCell(Layer):
 
     def get_config(self):
         config = {'units': self.units,
+                  'max_timesteps': self.max_timestep,
                   'activation': activations.serialize(self.activation),
                   'recurrent_activation': activations.serialize(self.recurrent_activation),
                   'use_bias': self.use_bias,
                   'kernel_initializer': initializers.serialize(self.kernel_initializer),
                   'recurrent_initializer': initializers.serialize(self.recurrent_initializer),
                   'bias_initializer': initializers.serialize(self.bias_initializer),
-                  'unit_forget_bias': self.use_chrono_initialization,
+                  'use_chrono_initialization': self.use_chrono_initialization,
                   'kernel_regularizer': regularizers.serialize(self.kernel_regularizer),
                   'recurrent_regularizer': regularizers.serialize(self.recurrent_regularizer),
                   'bias_regularizer': regularizers.serialize(self.bias_regularizer),
@@ -272,18 +289,17 @@ class JANETCell(Layer):
                   'bias_constraint': constraints.serialize(self.bias_constraint),
                   'dropout': self.dropout,
                   'recurrent_dropout': self.recurrent_dropout,
-                  'implementation': self.implementation,
-                  'max_timesteps': self.max_timesteps}
-        base_config = super(JANETCell, self).get_config()
+                  'implementation': self.implementation}
+        base_config = super(ChronoLSTMCell, self).get_config()
         return dict(list(base_config.items()) + list(config.items()))
 
 
-class JANET(RNN):
-    """JANET Layer - ["The unreasonable effectiveness of the forget gate"]
-       (https://arxiv.org/abs/1804.04849)
+class ChronoLSTM(RNN):
+    """Long Short-Term Memory layer - Hochreiter 1997 with Chrono Initialization.
 
     # Arguments
         units: Positive integer, dimensionality of the output space.
+        max_timesteps: Positive integer, maximum number of timesteps possible.
         activation: Activation function to use
             (see [activations](../activations.md)).
             Default: hyperbolic tangent (`tanh`).
@@ -306,10 +322,8 @@ class JANET(RNN):
         bias_initializer: Initializer for the bias vector
             (see [initializers](../initializers.md)).
         use_chrono_initialization: Boolean.
-            If True, overrides the provided kernel initializer, recurrent
-            initializer and forget gate initializer of the model to use
-            'ChronoInitializer' scheme.
-            Ref: [The unreasonable effectiveness of the forget gate](https://arxiv.org/abs/1804.04849)
+            If True, uses Chrono Initialization from the paper
+            [Can recurrent neural networks warp time?](https://openreview.net/pdf?id=SJcKhk-Ab)
         kernel_regularizer: Regularizer function applied to
             the `kernel` weights matrix
             (see [regularizer](../regularizers.md)).
@@ -360,16 +374,18 @@ class JANET(RNN):
 
     # References
         - [The unreasonable effectiveness of the forget gate](https://arxiv.org/abs/1804.04849)
+        - [Long short-term memory](http://www.bioinf.jku.at/publications/older/2604.pdf) (original 1997 paper)
+        - [Learning to forget: Continual prediction with LSTM](http://www.mitpressjournals.org/doi/pdf/10.1162/089976600300015015)
         - [Supervised sequence labeling with recurrent neural networks](http://www.cs.toronto.edu/~graves/preprint.pdf)
         - [A Theoretically Grounded Application of Dropout in Recurrent Neural Networks](http://arxiv.org/abs/1512.05287)
     """
 
-    def __init__(self, units,
+    def __init__(self, units, max_timesteps,
                  activation='tanh',
-                 recurrent_activation='sigmoid',
+                 recurrent_activation='hard_sigmoid',
                  use_bias=True,
                  kernel_initializer='glorot_uniform',
-                 recurrent_initializer='glorot_uniform',
+                 recurrent_initializer='orthogonal',
                  bias_initializer='zeros',
                  use_chrono_initialization=True,
                  kernel_regularizer=None,
@@ -401,47 +417,47 @@ class JANET(RNN):
             dropout = 0.
             recurrent_dropout = 0.
 
-        cell = JANETCell(units,
-                         activation=activation,
-                         recurrent_activation=recurrent_activation,
-                         use_bias=use_bias,
-                         kernel_initializer=kernel_initializer,
-                         recurrent_initializer=recurrent_initializer,
-                         use_chrono_initialization=use_chrono_initialization,
-                         bias_initializer=bias_initializer,
-                         kernel_regularizer=kernel_regularizer,
-                         recurrent_regularizer=recurrent_regularizer,
-                         bias_regularizer=bias_regularizer,
-                         kernel_constraint=kernel_constraint,
-                         recurrent_constraint=recurrent_constraint,
-                         bias_constraint=bias_constraint,
-                         dropout=dropout,
-                         recurrent_dropout=recurrent_dropout,
-                         implementation=implementation)
-        super(JANET, self).__init__(cell,
-                                    return_sequences=return_sequences,
-                                    return_state=return_state,
-                                    go_backwards=go_backwards,
-                                    stateful=stateful,
-                                    unroll=unroll,
-                                    **kwargs)
+        cell = ChronoLSTMCell(units, max_timesteps,
+                              activation=activation,
+                              recurrent_activation=recurrent_activation,
+                              use_bias=use_bias,
+                              kernel_initializer=kernel_initializer,
+                              recurrent_initializer=recurrent_initializer,
+                              use_chrono_initialization=use_chrono_initialization,
+                              bias_initializer=bias_initializer,
+                              kernel_regularizer=kernel_regularizer,
+                              recurrent_regularizer=recurrent_regularizer,
+                              bias_regularizer=bias_regularizer,
+                              kernel_constraint=kernel_constraint,
+                              recurrent_constraint=recurrent_constraint,
+                              bias_constraint=bias_constraint,
+                              dropout=dropout,
+                              recurrent_dropout=recurrent_dropout,
+                              implementation=implementation)
+        super(ChronoLSTM, self).__init__(cell,
+                                         return_sequences=return_sequences,
+                                         return_state=return_state,
+                                         go_backwards=go_backwards,
+                                         stateful=stateful,
+                                         unroll=unroll,
+                                         **kwargs)
         self.activity_regularizer = regularizers.get(activity_regularizer)
-
-    def build(self, input_shape):
-        self.cell.timesteps = input_shape[1]
-        super(JANET, self).build(input_shape)
 
     def call(self, inputs, mask=None, training=None, initial_state=None):
         self.cell._dropout_mask = None
         self.cell._recurrent_dropout_mask = None
-        return super(JANET, self).call(inputs,
-                                       mask=mask,
-                                       training=training,
-                                       initial_state=initial_state)
+        return super(ChronoLSTM, self).call(inputs,
+                                            mask=mask,
+                                            training=training,
+                                            initial_state=initial_state)
 
     @property
     def units(self):
         return self.cell.units
+
+    @property
+    def max_timesteps(self):
+        return self.cell.max_timesteps
 
     @property
     def activation(self):
@@ -468,8 +484,8 @@ class JANET(RNN):
         return self.cell.bias_initializer
 
     @property
-    def unit_forget_bias(self):
-        return self.cell.unit_forget_bias
+    def use_chrono_initialization(self):
+        return self.cell.use_chrono_initialization
 
     @property
     def kernel_regularizer(self):
@@ -507,19 +523,16 @@ class JANET(RNN):
     def implementation(self):
         return self.cell.implementation
 
-    @property
-    def max_timesteps(self):
-        return self.cell.max_timesteps
-
     def get_config(self):
         config = {'units': self.units,
+                  'max_timesteps': self.max_timesteps,
                   'activation': activations.serialize(self.activation),
                   'recurrent_activation': activations.serialize(self.recurrent_activation),
                   'use_bias': self.use_bias,
                   'kernel_initializer': initializers.serialize(self.kernel_initializer),
                   'recurrent_initializer': initializers.serialize(self.recurrent_initializer),
                   'bias_initializer': initializers.serialize(self.bias_initializer),
-                  'unit_forget_bias': self.unit_forget_bias,
+                  'use_chrono_initialization': self.use_chrono_initialization,
                   'kernel_regularizer': regularizers.serialize(self.kernel_regularizer),
                   'recurrent_regularizer': regularizers.serialize(self.recurrent_regularizer),
                   'bias_regularizer': regularizers.serialize(self.bias_regularizer),
@@ -529,9 +542,8 @@ class JANET(RNN):
                   'bias_constraint': constraints.serialize(self.bias_constraint),
                   'dropout': self.dropout,
                   'recurrent_dropout': self.recurrent_dropout,
-                  'implementation': self.implementation,
-                  'max_timesteps': self.max_timesteps}
-        base_config = super(JANET, self).get_config()
+                  'implementation': self.implementation}
+        base_config = super(ChronoLSTM, self).get_config()
         del base_config['cell']
         return dict(list(base_config.items()) + list(config.items()))
 
@@ -542,5 +554,5 @@ class JANET(RNN):
         return cls(**config)
 
 
-get_custom_objects().update({'JANETCell': JANETCell,
-                             'JANET': JANET})
+get_custom_objects().update({'ChronoLSTMCell': ChronoLSTMCell,
+                             'ChronoLSTM': ChronoLSTM})
