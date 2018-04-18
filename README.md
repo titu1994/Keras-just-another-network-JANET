@@ -32,3 +32,7 @@ Need to study where the difference lies - either in the `ChronoInitializer`, or 
 
 ## Sequential MNIST
 Perhaps due to its slower convergence, the `JANET` model reaches a max test accuracy of just `98.39` after 100 epochs, far lower than the second standard deviation of the 10 fold mean-std performance in the paper. Will have to wait for their implementation to check what is the difference.
+
+# Requirements
+- Keras 2.1.5+
+- Tensorflow (Tested on 1.7, I think 1.2+  should be fine)
