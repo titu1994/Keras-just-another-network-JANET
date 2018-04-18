@@ -2,7 +2,7 @@
 
 Keras implementation of the paper [The unreasonable effectiveness of the forget gate](https://arxiv.org/abs/1804.04849).
 
-This model utilizes just 2 gates - forget (f) and context (c) gates out of the 4 gates in a regular LSTM RNN, and with the utilization of `Chrono Initialization` from the paper [Can Recurrent Neural Networks Warp Time?](https://openreview.net/pdf?id=SJcKhk-Ab) to acheive better performance than regular LSTMs while using fewer parameters and less complicated gating structure.
+This model utilizes just 2 gates - forget (f) and context (c) gates out of the 4 gates in a regular LSTM RNN, and uses `Chrono Initialization` from the paper [Can Recurrent Neural Networks Warp Time?](https://openreview.net/pdf?id=SJcKhk-Ab) to acheive better performance than regular LSTMs while using fewer parameters and less complicated gating structure.
 
 # Usage
 Simply import the `janet.py` file into your repo and use the `JANET` layer. 
