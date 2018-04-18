@@ -1,4 +1,4 @@
-# Keras - Chrono LSTM and Just Another Recurernt Neural Network
+# Keras - Chrono LSTM and Just Another Recurrent Neural Network
 
 Keras implementation of the paper [The unreasonable effectiveness of the forget gate](https://arxiv.org/abs/1804.04849).
 
