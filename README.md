@@ -7,9 +7,9 @@ This model utilizes just 2 gates - forget (f) and context (c) gates out of the 4
 # Usage
 Simply import the `janet.py` file into your repo and use the `JANET` layer. 
 
-It is **not** adviseable to use the JANETCell directly wrapped around a `RNN` layer, as this will not allow the `max timesteps` calculation that is needed for proper training using the `Chrono Initializer` for the forget gates
+It is **not** adviseable to use the `JANETCell` directly wrapped around a `RNN` layer, as this will not allow the `max timesteps` calculation that is needed for proper training using the `Chrono Initializer` for the forget gate.
 
-The `chrono_lstm.py` script contains the `ChronoLSTM` model, as it requires minimal modifications to the original LSTM to use the ChronoInitializer for the forget and input gates.
+The `chrono_lstm.py` script contains the `ChronoLSTM` model, as it requires minimal modifications to the original `LSTM` layer to use the `ChronoInitializer` for the forget and input gates.
 
 Same restrictions to usage as the `JANET` layer, use the `ChronoLSTM` layer directly instead of the `ChronoLSTMCell` wrapped around a `RNN` layer.
 
@@ -28,7 +28,7 @@ The `JANET` model perperly gets learns the addition task for T = 100 in approxim
 For T = 500 and T = 750, `JANET` loss starts dropping after epoch 12, and goes down steadily and reaches its low enough value around epoch 18. This corresponds to roughly 1200 - 1800 steps, much more than the 900~ steps needed by the paper.
 
 ### Notes
-Need to study where the difference lies - either in the Chrono Initializer, or the initializations of the kernel/recurrent kernel. I used `glorot_uniform` for both since they match what the paper discussed, and found `orthogonal` for the recurrent kernel to provide slightly faster convergence, but still not approaching the paper.
+Need to study where the difference lies - either in the `ChronoInitializer`, or the initializations of the kernel/recurrent kernel. I used `glorot_uniform` for both since they match what the paper discussed, and found `orthogonal` for the recurrent kernel to provide slightly faster convergence, but still not approaching the paper.
 
 ## Sequential MNIST
-Perhaps due to its slower convergence, the `JANET` model reaches a max test accuracy of 98.39 after 100 epochs, far lower than the second standard deviation of the 10 fold mean-std performance in the paper. Will have to wait for their implementation to check what is the difference.
+Perhaps due to its slower convergence, the `JANET` model reaches a max test accuracy of just `98.39` after 100 epochs, far lower than the second standard deviation of the 10 fold mean-std performance in the paper. Will have to wait for their implementation to check what is the difference.
