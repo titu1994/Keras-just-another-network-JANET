@@ -144,7 +144,7 @@ class ChronoLSTMCell(Layer):
             if self.use_chrono_initialization:
                 def bias_initializer(_, *args, **kwargs):
                     f_init = ChronoInitializer(self.max_timestep)((self.units,), *args, **kwargs)
-                    i_init = -f_init
+                    i_init = -K.identity(f_init)
 
                     return K.concatenate([
                         i_init,
