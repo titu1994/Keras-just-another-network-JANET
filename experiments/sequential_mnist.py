@@ -56,10 +56,10 @@ model.compile(loss='categorical_crossentropy',
 #           epochs=epochs,
 #           verbose=1,
 #           validation_data=(x_test, y_test),
-#           callbacks=[ModelCheckpoint('weights/imdb_janet_mnist.h5', monitor='val_acc',
+#           callbacks=[ModelCheckpoint('weights/janet_mnist.h5', monitor='val_acc',
 #                                      save_best_only=True, save_weights_only=True, mode='max')])
 
-model.load_weights('weights/imdb_janet_mnist.h5')
+model.load_weights('weights/janet_mnist.h5')
 
 scores = model.evaluate(x_test, y_test, verbose=1)
 print('IndRNN test score:', scores[0])

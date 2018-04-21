@@ -12,13 +12,13 @@ from keras.optimizers import Adam
 from keras import initializers
 from keras.callbacks import ModelCheckpoint
 
-from janet import JANET
+from chrono_lstm import ChronoLSTM
 
 if not os.path.exists('weights'):
     os.makedirs('weights/')
 
 # Parameters taken from https://arxiv.org/abs/1804.04849
-TIME_STEPS = 100
+TIME_STEPS = 750
 NUM_UNITS = 128
 LEARNING_RATE = 0.001
 STEPS_PER_EPOCH = 100
@@ -31,15 +31,15 @@ def batch_generator():
     while True:
         """Generate the adding problem dataset"""
         # Build the first sequence
-        add_values = np.random.uniform(0., 1., (BATCH_SIZE, TIME_STEPS))
+        add_values = np.random.rand(BATCH_SIZE, TIME_STEPS)
 
         # Build the second sequence with one 1 in each half and 0s otherwise
-        add_indices = np.zeros_like(add_values, dtype='float32')
+        add_indices = np.zeros_like(add_values)
         half = int(TIME_STEPS / 2)
         for i in range(BATCH_SIZE):
             first_half = np.random.randint(half)
             second_half = np.random.randint(half, TIME_STEPS)
-            add_indices[i, [first_half, second_half]] = 1.
+            add_indices[i, [first_half, second_half]] = 1
 
         # Zip the values and indices in a third dimension:
         # inputs has the shape (batch_size, time_steps, 2)
@@ -53,7 +53,7 @@ def batch_generator():
 
 print('Build model...')
 model = Sequential()
-model.add(JANET(NUM_UNITS, input_shape=(TIME_STEPS, 2)))
+model.add(ChronoLSTM(NUM_UNITS, max_timesteps=TIME_STEPS, input_shape=(TIME_STEPS, 2)))
 model.add(Dense(1, activation='linear'))
 
 # try using different optimizers and different optimizer configs
@@ -62,5 +62,5 @@ model.compile(loss='mse', optimizer='adam')
 
 model.fit_generator(batch_generator(), steps_per_epoch=STEPS_PER_EPOCH,
                     epochs=NUM_EPOCHS, verbose=1,
-                    callbacks=[ModelCheckpoint('weights/janet_addition_%d.h5' % (TIME_STEPS), monitor='loss',
+                    callbacks=[ModelCheckpoint('weights/chrono_lstm_addition_%d.h5' % (TIME_STEPS), monitor='loss',
                                                save_best_only=True, save_weights_only=True, mode='min')])
