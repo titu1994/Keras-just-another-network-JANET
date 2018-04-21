@@ -83,10 +83,10 @@ class ChronoLSTMCell(Layer):
 
     def __init__(self, units, max_timesteps,
                  activation='tanh',
-                 recurrent_activation='hard_sigmoid',
+                 recurrent_activation='sigmoid',
                  use_bias=True,
                  kernel_initializer='glorot_uniform',
-                 recurrent_initializer='orthogonal',
+                 recurrent_initializer='glorot_uniform',
                  bias_initializer='zeros',
                  use_chrono_initialization=True,
                  kernel_regularizer=None,
@@ -373,7 +373,7 @@ class ChronoLSTM(RNN):
             Unrolling is only suitable for short sequences.
 
     # References
-        - [The unreasonable effectiveness of the forget gate](https://arxiv.org/abs/1804.04849)
+        - [Can recurrent neural networks warp time? ](https://openreview.net/forum?id=SJcKhk-Ab)
         - [Long short-term memory](http://www.bioinf.jku.at/publications/older/2604.pdf) (original 1997 paper)
         - [Learning to forget: Continual prediction with LSTM](http://www.mitpressjournals.org/doi/pdf/10.1162/089976600300015015)
         - [Supervised sequence labeling with recurrent neural networks](http://www.cs.toronto.edu/~graves/preprint.pdf)
@@ -382,10 +382,10 @@ class ChronoLSTM(RNN):
 
     def __init__(self, units, max_timesteps,
                  activation='tanh',
-                 recurrent_activation='hard_sigmoid',
+                 recurrent_activation='sigmoid',
                  use_bias=True,
                  kernel_initializer='glorot_uniform',
-                 recurrent_initializer='orthogonal',
+                 recurrent_initializer='glorot_uniform',
                  bias_initializer='zeros',
                  use_chrono_initialization=True,
                  kernel_regularizer=None,
