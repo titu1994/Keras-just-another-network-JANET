@@ -4,6 +4,10 @@ from keras import backend as K
 
 
 class ChronoInitializer(initializers.RandomUniform):
+    """
+    Chrono Initializer from the paper :
+    [Can recurrent neural networks warp time? ](https://openreview.net/forum?id=SJcKhk-Ab)
+    """
 
     def __init__(self, max_timesteps, seed=None):
         super(ChronoInitializer, self).__init__(1., max_timesteps - 1, seed)
