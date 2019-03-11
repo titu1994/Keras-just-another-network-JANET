@@ -37,6 +37,9 @@ class JANETCell(Layer):
             Default: hard sigmoid (`hard_sigmoid`).
             If you pass `None`, no activation is applied
             (ie. "linear" activation: `a(x) = x`).x
+        beta: float, used on the forget gate. This constant is
+            dataset dependent, and we choose beta=1 typically. This beta
+            allows slightly more information accumulated than forgotten.
         use_bias: Boolean, whether the layer uses a bias vector.
         kernel_initializer: Initializer for the `kernel` weights matrix,
             used for the linear transformation of the inputs
@@ -80,14 +83,12 @@ class JANETCell(Layer):
             batch them into fewer, larger operations. These modes will
             have different performance profiles on different hardware and
             for different applications.
-        beta: a hyperparameter beta used on the forget gate. This constant is 
-            dataset dependent, and we choose beta=1 typically. This beta
-            allows slightly more information accumulated than forgotten.
     """
 
     def __init__(self, units,
                  activation='tanh',
                  recurrent_activation='sigmoid',
+                 beta=1.,
                  use_bias=True,
                  kernel_initializer='glorot_uniform',
                  recurrent_initializer='glorot_uniform',
@@ -102,12 +103,12 @@ class JANETCell(Layer):
                  dropout=0.,
                  recurrent_dropout=0.,
                  implementation=1,
-                 beta=1,
                  **kwargs):
         super(JANETCell, self).__init__(**kwargs)
         self.units = units
         self.activation = activations.get(activation)
         self.recurrent_activation = activations.get(recurrent_activation)
+        self.beta = beta
         self.use_bias = use_bias
 
         self.kernel_initializer = initializers.get(kernel_initializer)
@@ -129,8 +130,6 @@ class JANETCell(Layer):
         self.state_size = (self.units, self.units)
         self._dropout_mask = None
         self._recurrent_dropout_mask = None
-        
-        self.beta = beta
 
     def build(self, input_shape):
         input_dim = input_shape[-1]
@@ -233,9 +232,11 @@ class JANETCell(Layer):
                 h_tm1_c = h_tm1
 
             f = self.recurrent_activation(x_f + K.dot(h_tm1_f, self.recurrent_kernel_f))
-            c = f * c_tm1 + \
-                (1. - self.recurrent_activation(x_f + K.dot(h_tm1_f, self.recurrent_kernel_f) - self.beta)) * \
-                self.activation(x_c + K.dot(h_tm1_c, self.recurrent_kernel_c))
+            cf = self.recurrent_activation(x_f + K.dot(h_tm1_f, self.recurrent_kernel_f) - self.beta)
+            ci = self.activation(x_c + K.dot(h_tm1_c, self.recurrent_kernel_c))
+
+            c = f * c_tm1 + (1. - cf) * ci
+
         else:
             if 0. < self.dropout < 1.:
                 inputs *= dp_mask[0]
@@ -266,6 +267,7 @@ class JANETCell(Layer):
         config = {'units': self.units,
                   'activation': activations.serialize(self.activation),
                   'recurrent_activation': activations.serialize(self.recurrent_activation),
+                  'beta': self.beta,
                   'use_bias': self.use_bias,
                   'kernel_initializer': initializers.serialize(self.kernel_initializer),
                   'recurrent_initializer': initializers.serialize(self.recurrent_initializer),
@@ -302,6 +304,9 @@ class JANET(RNN):
             Default: hard sigmoid (`hard_sigmoid`).
             If you pass `None`, no activation is applied
             (ie. "linear" activation: `a(x) = x`).
+        beta: float, used on the forget gate. This constant is
+            dataset dependent, and we choose beta=1 typically. This beta
+            allows slightly more information accumulated than forgotten.
         use_bias: Boolean, whether the layer uses a bias vector.
         kernel_initializer: Initializer for the `kernel` weights matrix,
             used for the linear transformation of the inputs.
@@ -374,6 +379,7 @@ class JANET(RNN):
     def __init__(self, units,
                  activation='tanh',
                  recurrent_activation='sigmoid',
+                 beta=1.,
                  use_bias=True,
                  kernel_initializer='glorot_uniform',
                  recurrent_initializer='glorot_uniform',
@@ -411,6 +417,7 @@ class JANET(RNN):
         cell = JANETCell(units,
                          activation=activation,
                          recurrent_activation=recurrent_activation,
+                         beta=beta,
                          use_bias=use_bias,
                          kernel_initializer=kernel_initializer,
                          recurrent_initializer=recurrent_initializer,
@@ -457,6 +464,10 @@ class JANET(RNN):
     @property
     def recurrent_activation(self):
         return self.cell.recurrent_activation
+
+    @property
+    def beta(self):
+        return self.cell.beta
 
     @property
     def use_bias(self):
@@ -522,6 +533,7 @@ class JANET(RNN):
         config = {'units': self.units,
                   'activation': activations.serialize(self.activation),
                   'recurrent_activation': activations.serialize(self.recurrent_activation),
+                  'beta': self.beta,
                   'use_bias': self.use_bias,
                   'kernel_initializer': initializers.serialize(self.kernel_initializer),
                   'recurrent_initializer': initializers.serialize(self.recurrent_initializer),
