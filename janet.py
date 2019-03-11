@@ -80,6 +80,9 @@ class JANETCell(Layer):
             batch them into fewer, larger operations. These modes will
             have different performance profiles on different hardware and
             for different applications.
+        beta: a hyperparameter beta used on the forget gate. This constant is 
+            dataset dependent, and we choose beta=1 typically. This beta
+            allows slightly more information accumulated than forgotten.
     """
 
     def __init__(self, units,
@@ -99,6 +102,7 @@ class JANETCell(Layer):
                  dropout=0.,
                  recurrent_dropout=0.,
                  implementation=1,
+                 beta=1,
                  **kwargs):
         super(JANETCell, self).__init__(**kwargs)
         self.units = units
@@ -125,6 +129,8 @@ class JANETCell(Layer):
         self.state_size = (self.units, self.units)
         self._dropout_mask = None
         self._recurrent_dropout_mask = None
+        
+        self.beta = beta
 
     def build(self, input_shape):
         input_dim = input_shape[-1]
@@ -227,7 +233,9 @@ class JANETCell(Layer):
                 h_tm1_c = h_tm1
 
             f = self.recurrent_activation(x_f + K.dot(h_tm1_f, self.recurrent_kernel_f))
-            c = f * c_tm1 + (1. - f) * self.activation(x_c + K.dot(h_tm1_c, self.recurrent_kernel_c))
+            c = f * c_tm1 + \
+                (1. - self.recurrent_activation(x_f + K.dot(h_tm1_f, self.recurrent_kernel_f) - self.beta)) * \
+                self.activation(x_c + K.dot(h_tm1_c, self.recurrent_kernel_c))
         else:
             if 0. < self.dropout < 1.:
                 inputs *= dp_mask[0]
@@ -246,7 +254,7 @@ class JANETCell(Layer):
             z1 = z[:, self.units: 2 * self.units]
 
             f = self.recurrent_activation(z0)
-            c = f * c_tm1 + (1. - f) * self.activation(z1)
+            c = f * c_tm1 + (1. - self.recurrent_activation(z0 - self.beta)) * self.activation(z1)
 
         h = c
         if 0 < self.dropout + self.recurrent_dropout:
